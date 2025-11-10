@@ -1,4 +1,4 @@
-module example.com/tinydb
+module github.com/cdvelop/tinydb
 
 go 1.25.2
 
