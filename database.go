@@ -1,7 +1,7 @@
-package tinydb
+package kvdb
 
 import (
-	. "github.com/cdvelop/tinystring"
+	. "github.com/tinywasm/fmt"
 )
 
 type pair struct {

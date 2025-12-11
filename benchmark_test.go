@@ -1,9 +1,9 @@
-package tinydb
+package kvdb
 
 import (
 	"testing"
 
-	. "github.com/cdvelop/tinystring"
+	. "github.com/tinywasm/fmt"
 )
 
 // memStore is a lightweight in-memory Store used only for benchmarks.

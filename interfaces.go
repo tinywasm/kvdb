@@ -1,4 +1,4 @@
-package tinydb
+package kvdb
 
 // Store defines the persistence interface
 type Store interface {

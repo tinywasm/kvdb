@@ -1,5 +1,5 @@
-module github.com/cdvelop/tinydb
+module github.com/tinywasm/kvdb
 
 go 1.25.2
 
-require github.com/cdvelop/tinystring v0.10.4
+require github.com/tinywasm/fmt v0.10.4

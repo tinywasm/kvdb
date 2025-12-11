@@ -1,4 +1,4 @@
-package tinydb
+package kvdb
 
 import (
 	"bytes"
