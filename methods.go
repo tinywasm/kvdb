@@ -5,6 +5,9 @@ import (
 )
 
 func (t *TinyDB) Get(key string) (string, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+
 	for _, p := range t.data {
 		if p.Key == key {
 			return p.Value, nil
@@ -14,6 +17,9 @@ func (t *TinyDB) Get(key string) (string, error) {
 }
 
 func (t *TinyDB) Set(key, value string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	// search if it exists
 	for i, p := range t.data {
 		if p.Key == key {

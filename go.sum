@@ -1,2 +1,2 @@
-github.com/cdvelop/tinystring v0.10.4 h1:Vsj/2WU2I682TAGV0GMYujMhZNHgFlnc3gjKy53GqOg=
-github.com/cdvelop/tinystring v0.10.4/go.mod h1:m12IsLVkhIRv/kA7bercPtzfdZhx2WtuZUPZWZhUsgw=
+github.com/tinywasm/fmt v0.14.0 h1:Z3mudKuoxRPB97VEisk9pkV2tdvt2YxgJygPJEcPeo4=
+github.com/tinywasm/fmt v0.14.0/go.mod h1:L2GCAi6asgytPV6TVvGrRq5Ml+DkUt1Ijo5i/2J1jOY=

@@ -1,6 +1,8 @@
 package kvdb
 
 import (
+	"sync"
+
 	. "github.com/tinywasm/fmt"
 )
 
@@ -20,6 +22,7 @@ type TinyDB struct {
 	store Store
 
 	raw *Conv
+	mu  sync.RWMutex
 }
 
 // New creates or loads a database
