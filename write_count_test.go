@@ -86,7 +86,7 @@ func TestFlushWritesPendingState(t *testing.T) {
 }
 
 // TestRapidSetsPreserveAllValues verifies that all values are correctly
-// persisted after rapid consecutive Set() calls (no debounce).
+// persisted after rapid consecutive Set() calls (with default debounce).
 func TestRapidSetsPreserveAllValues(t *testing.T) {
 	cs := &countingStore{mockStore: *newMockStore()}
 	cs.SetFile("test.env", []byte("browser_position=0,0\nbrowser_size=900,700\ndev_mode=true\n"))
@@ -107,5 +107,12 @@ func TestRapidSetsPreserveAllValues(t *testing.T) {
 		t.Errorf("browser_size: got %q (err %v), want %q", size, err, "1024,768")
 	}
 
-	t.Logf("INFO: %d writes for 3 Set() calls without debounce (performance issue, not a bug).", cs.setFileCount)
+	// Ensure everything is persisted
+	if err := db.Flush(); err != nil {
+		t.Fatalf("Flush failed: %v", err)
+	}
+
+	if cs.setFileCount != 1 {
+		t.Errorf("expected 1 disk write (coalesced), got %d", cs.setFileCount)
+	}
 }

@@ -11,7 +11,8 @@ TinyDB is a TinyGo-compatible, minimal key–value store for string keys and val
 
 ## Key features
 
-- Minimal public API: only `Get` and `Set` operations.
+- Minimal public API: `Get`, `Set` and `Flush` operations.
+- Automatic write debounce (150ms) for updates to reduce I/O.
 - Keys and values are plain `string` types.
 - Pluggable storage via the `Store` interface (file, memory, remote object store, etc.).
 - Simple on-disk/text format: one `key=value` entry per line.
@@ -22,6 +23,7 @@ TinyDB is a TinyGo-compatible, minimal key–value store for string keys and val
 1. Implement the `Store` interface for your persistence layer (file, in-memory, S3, etc.).
 2. Create a database instance with `tinydb.New(name, logger, store)`.
 3. Use `Get(key)` and `Set(key, value)` to read and write values.
+4. Call `Flush()` before exiting the application to ensure all data is written to disk.
 
 Example minimal flow:
 
@@ -29,12 +31,13 @@ Example minimal flow:
 - New DB: `db, err := tinydb.New("mydb.tdb", logger, store)`
 - Set: `db.Set("foo", "bar")`
 - Get: `val, err := db.Get("foo")`
+- Flush: `db.Flush()`
 
 ## API contract (concise)
 
 - Inputs: `key` and `value` are `string`.
-- Outputs: `Get` returns `(string, error)`. `Set` returns `error`.
-- Persistence: handled entirely by the `Store` implementation.
+- Outputs: `Get` returns `(string, error)`. `Set` and `Flush` return `error`.
+- Persistence: handled by the `Store` implementation; `Set` for updates is debounced by 150ms.
 - Failure modes: I/O errors or backend errors are returned as `error` from the public methods.
 
 Edge cases to consider:
@@ -51,6 +54,7 @@ The public interfaces look like this:
 type KVStore interface {
     Get(key string) (string, error)
     Set(key, value string) error
+    Flush() error
 }
 
 // Store abstracts the persistence backend used by tinydb.
@@ -131,6 +135,11 @@ func main() {
     }
 
     if err := db.Set("username", "cesar"); err != nil {
+        panic(err)
+    }
+
+    // Ensure changes are persisted before exiting
+    if err := db.Flush(); err != nil {
         panic(err)
     }
 
