@@ -1,19 +1,37 @@
 package kvdb
 
 import (
+	"sync"
 	"testing"
 	"time"
 )
 
 // countingStore wraps mockStore and counts how many times SetFile is called.
+// The mutex protects setFileCount against the race between the debounce timer
+// goroutine (writer) and the test goroutine (reader).
 type countingStore struct {
 	mockStore
+	mu           sync.Mutex
 	setFileCount int
 }
 
 func (c *countingStore) SetFile(path string, data []byte) error {
+	c.mu.Lock()
 	c.setFileCount++
+	c.mu.Unlock()
 	return c.mockStore.SetFile(path, data)
+}
+
+func (c *countingStore) count() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.setFileCount
+}
+
+func (c *countingStore) resetCount() {
+	c.mu.Lock()
+	c.setFileCount = 0
+	c.mu.Unlock()
 }
 
 // TestDebounceCoalescesRapidWrites verifies that with debounce enabled, N rapid
@@ -22,7 +40,7 @@ func TestDebounceCoalescesRapidWrites(t *testing.T) {
 	cs := &countingStore{mockStore: *newMockStore()}
 	cs.SetFile("test.env", []byte("browser_position=0,0\nbrowser_size=900,700\ndev_mode=true\n"))
 	db, _ := New("test.env", nil, cs)
-	cs.setFileCount = 0
+	cs.resetCount()
 
 	// 3 rapid Set() calls — same pattern as devbrowser.SaveGeometry per tick.
 	db.Set("browser_position", "300,400")
@@ -36,15 +54,15 @@ func TestDebounceCoalescesRapidWrites(t *testing.T) {
 	}
 
 	// No disk write should have happened yet (debounce window still open).
-	if cs.setFileCount != 0 {
-		t.Errorf("premature write: got %d writes before debounce fired, want 0", cs.setFileCount)
+	if cs.count() != 0 {
+		t.Errorf("premature write: got %d writes before debounce fired, want 0", cs.count())
 	}
 
 	// Wait for the default debounce (150ms) to flush.
 	time.Sleep(250 * time.Millisecond)
 
-	if cs.setFileCount != 1 {
-		t.Errorf("debounce: got %d disk writes for 3 rapid Set() calls, want 1", cs.setFileCount)
+	if cs.count() != 1 {
+		t.Errorf("debounce: got %d disk writes for 3 rapid Set() calls, want 1", cs.count())
 	}
 
 	// Values must be persisted after flush.
@@ -60,23 +78,23 @@ func TestFlushWritesPendingState(t *testing.T) {
 	cs := &countingStore{mockStore: *newMockStore()}
 	cs.SetFile("test.env", []byte("browser_position=0,0\nbrowser_size=900,700\n"))
 	db, _ := New("test.env", nil, cs)
-	cs.setFileCount = 0
+	cs.resetCount()
 
 	db.debounceDelay = 5 * time.Second // override for test: long delay so timer won't fire
 
 	db.Set("browser_position", "500,200")
 	db.Set("browser_size", "1920,1080")
 
-	if cs.setFileCount != 0 {
-		t.Errorf("unexpected write before Flush: %d", cs.setFileCount)
+	if cs.count() != 0 {
+		t.Errorf("unexpected write before Flush: %d", cs.count())
 	}
 
 	if err := db.Flush(); err != nil {
 		t.Fatalf("Flush() error: %v", err)
 	}
 
-	if cs.setFileCount != 1 {
-		t.Errorf("Flush(): got %d writes, want 1", cs.setFileCount)
+	if cs.count() != 1 {
+		t.Errorf("Flush(): got %d writes, want 1", cs.count())
 	}
 
 	pos, _ := db.Get("browser_position")
@@ -91,7 +109,7 @@ func TestRapidSetsPreserveAllValues(t *testing.T) {
 	cs := &countingStore{mockStore: *newMockStore()}
 	cs.SetFile("test.env", []byte("browser_position=0,0\nbrowser_size=900,700\ndev_mode=true\n"))
 	db, _ := New("test.env", nil, cs)
-	cs.setFileCount = 0
+	cs.resetCount()
 
 	db.Set("browser_position", "300,400")
 	db.Set("browser_size", "1024,768")
@@ -112,7 +130,7 @@ func TestRapidSetsPreserveAllValues(t *testing.T) {
 		t.Fatalf("Flush failed: %v", err)
 	}
 
-	if cs.setFileCount != 1 {
-		t.Errorf("expected 1 disk write (coalesced), got %d", cs.setFileCount)
+	if cs.count() != 1 {
+		t.Errorf("expected 1 disk write (coalesced), got %d", cs.count())
 	}
 }
