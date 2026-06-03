@@ -89,9 +89,10 @@ func TestLogger(t *testing.T) {
 		t.Errorf("expected error log for failing append, got '%s'", buf2.String())
 	}
 
-	// test failing persist (update)
+	// test failing persist (update) — Set schedules debounce; Flush forces the write
 	buf2.Reset()
 	_ = db2.Set("a", "c")
+	_ = db2.Flush()
 	if !strings.Contains(buf2.String(), "error persisting") {
 		t.Errorf("expected error log for failing persist, got '%s'", buf2.String())
 	}

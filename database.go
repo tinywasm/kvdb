@@ -2,6 +2,7 @@ package kvdb
 
 import (
 	"sync"
+	"time"
 
 	. "github.com/tinywasm/fmt"
 )
@@ -23,6 +24,30 @@ type TinyDB struct {
 
 	raw *Conv
 	mu  sync.RWMutex
+
+	debounceDelay time.Duration
+	debounceTimer *time.Timer
+	dirty         bool
+}
+
+// defaultDebounce is the write delay applied automatically. Consecutive Set()
+// calls within this window are coalesced into a single disk write.
+const defaultDebounce = 150 * time.Millisecond
+
+// Flush writes any pending debounced state to disk immediately.
+// Call before process exit when debounce is enabled.
+func (t *TinyDB) Flush() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !t.dirty {
+		return nil
+	}
+	if t.debounceTimer != nil {
+		t.debounceTimer.Stop()
+		t.debounceTimer = nil
+	}
+	t.dirty = false
+	return t.persist()
 }
 
 // New creates or loads a database
@@ -32,11 +57,12 @@ func New(name string, log LoggerFunc, store Store) (*TinyDB, error) {
 	}
 
 	db := &TinyDB{
-		name:  name,
-		data:  make([]pair, 0),
-		log:   log,
-		store: store,
-		raw:   Convert(),
+		name:          name,
+		data:          make([]pair, 0),
+		log:           log,
+		store:         store,
+		raw:           Convert(),
+		debounceDelay: defaultDebounce,
 	}
 
 	// try to load DB from Store

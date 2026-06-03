@@ -1,6 +1,8 @@
 package kvdb
 
 import (
+	"time"
+
 	. "github.com/tinywasm/fmt"
 )
 
@@ -24,8 +26,7 @@ func (t *TinyDB) Set(key, value string) error {
 	for i, p := range t.data {
 		if p.Key == key {
 			t.data[i].Value = value
-			// update requires full persist
-			return t.persist()
+			return t.schedulePersist()
 		}
 	}
 
@@ -33,6 +34,27 @@ func (t *TinyDB) Set(key, value string) error {
 	newPair := pair{Key: key, Value: value}
 	t.data = append(t.data, newPair)
 	return t.append(newPair)
+}
+
+// schedulePersist either writes immediately (no debounce) or defers the write.
+// Must be called with t.mu held.
+func (t *TinyDB) schedulePersist() error {
+	if t.debounceDelay == 0 {
+		return t.persist()
+	}
+	t.dirty = true
+	if t.debounceTimer == nil {
+		t.debounceTimer = time.AfterFunc(t.debounceDelay, func() {
+			t.mu.Lock()
+			defer t.mu.Unlock()
+			if t.dirty {
+				t.persist() //nolint
+				t.dirty = false
+			}
+			t.debounceTimer = nil
+		})
+	}
+	return nil
 }
 
 func (t *TinyDB) append(p pair) error {
