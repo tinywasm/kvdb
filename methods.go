@@ -45,13 +45,23 @@ func (t *TinyDB) schedulePersist() error {
 	t.dirty = true
 	if t.debounceTimer == nil {
 		t.debounceTimer = time.AfterFunc(t.debounceDelay, func() {
+			// Snapshot data under lock, then write to disk outside the lock.
+			// This keeps the lock window minimal so Get/Set calls are not
+			// blocked during the (potentially slow) disk I/O.
 			t.mu.Lock()
-			defer t.mu.Unlock()
-			if t.dirty {
-				t.persist() //nolint
-				t.dirty = false
+			if !t.dirty {
+				t.debounceTimer = nil
+				t.mu.Unlock()
+				return
 			}
+			data := t.snapshot()
+			t.dirty = false
 			t.debounceTimer = nil
+			t.mu.Unlock()
+
+			if err := t.store.SetFile(t.name, data); err != nil {
+				t.log("error persisting:", err.Error())
+			}
 		})
 	}
 	return nil
@@ -73,7 +83,9 @@ func (t *TinyDB) append(p pair) error {
 	return nil
 }
 
-func (t *TinyDB) persist() error {
+// snapshot builds the serialized bytes from current in-memory data.
+// Must be called with t.mu held.
+func (t *TinyDB) snapshot() []byte {
 	t.raw.Reset()
 	for _, p := range t.data {
 		t.raw.Write(p.Key)
@@ -81,12 +93,16 @@ func (t *TinyDB) persist() error {
 		t.raw.Write(p.Value)
 		t.raw.Write("\n")
 	}
+	out := make([]byte, len(t.raw.Bytes()))
+	copy(out, t.raw.Bytes())
+	return out
+}
 
-	if err := t.store.SetFile(t.name, t.raw.Bytes()); err != nil {
-		// log only on error
+func (t *TinyDB) persist() error {
+	data := t.snapshot()
+	if err := t.store.SetFile(t.name, data); err != nil {
 		t.log("error persisting:", err.Error())
 		return err
 	}
-
 	return nil
 }
