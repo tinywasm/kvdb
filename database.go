@@ -2,14 +2,25 @@ package kvdb
 
 import (
 	"sync"
-	"time"
 
 	. "github.com/tinywasm/fmt"
+	. "github.com/tinywasm/time"
 )
 
 type pair struct {
 	Key   string
 	Value string
+}
+
+// splitOnFirstEquals splits a string on the first '=' character.
+// Returns (key, value). If no '=' is found, returns ("", "").
+func splitOnFirstEquals(s string) (key, value string) {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '=' {
+			return s[:i], s[i+1:]
+		}
+	}
+	return "", ""
 }
 
 // LoggerFunc is a simple logger that accepts any values (like fmt.Println).
@@ -25,14 +36,14 @@ type TinyDB struct {
 	raw *Conv
 	mu  sync.RWMutex
 
-	debounceDelay time.Duration
-	debounceTimer *time.Timer
+	debounceDelay int   // milliseconds
+	debounceTimer Timer // from github.com/tinywasm/time
 	dirty         bool
 }
 
-// defaultDebounce is the write delay applied automatically. Consecutive Set()
-// calls within this window are coalesced into a single disk write.
-const defaultDebounce = 150 * time.Millisecond
+// defaultDebounce is the write delay applied automatically (milliseconds).
+// Consecutive Set() calls within this window are coalesced into a single disk write.
+const defaultDebounce = 150
 
 // Flush writes any pending debounced state to disk immediately.
 // Call before process exit when debounce is enabled.
@@ -73,11 +84,14 @@ func New(name string, log LoggerFunc, store Store) (*TinyDB, error) {
 			if Convert(line).TrimSpace().String() == "" {
 				continue
 			}
-			kv := Convert(line).Split("=")
-			if len(kv) == 2 {
+			// Split only on the first '=' to handle values containing '='
+			// (e.g. POSTGRES_DSN with query parameters like ?sslmode=disable).
+			trimmed := Convert(line).TrimSpace().String()
+			key, val := splitOnFirstEquals(trimmed)
+			if key != "" {
 				db.data = append(db.data, pair{
-					Key:   kv[0],
-					Value: kv[1],
+					Key:   key,
+					Value: val,
 				})
 			}
 		}

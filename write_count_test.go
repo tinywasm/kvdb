@@ -80,7 +80,7 @@ func TestFlushWritesPendingState(t *testing.T) {
 	db, _ := New("test.env", nil, cs)
 	cs.resetCount()
 
-	db.debounceDelay = 5 * time.Second // override for test: long delay so timer won't fire
+	db.debounceDelay = 5000 // 5 seconds in milliseconds; override for test: long delay so timer won't fire
 
 	db.Set("browser_position", "500,200")
 	db.Set("browser_size", "1920,1080")

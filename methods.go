@@ -1,9 +1,8 @@
 package kvdb
 
 import (
-	"time"
-
 	. "github.com/tinywasm/fmt"
+	. "github.com/tinywasm/time"
 )
 
 func (t *TinyDB) Get(key string) (string, error) {
@@ -44,7 +43,7 @@ func (t *TinyDB) schedulePersist() error {
 	}
 	t.dirty = true
 	if t.debounceTimer == nil {
-		t.debounceTimer = time.AfterFunc(t.debounceDelay, func() {
+		t.debounceTimer = AfterFunc(t.debounceDelay, func() {
 			// Snapshot data under lock, then write to disk outside the lock.
 			// This keeps the lock window minimal so Get/Set calls are not
 			// blocked during the (potentially slow) disk I/O.

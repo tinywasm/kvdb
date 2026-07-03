@@ -100,4 +100,54 @@ func TestNew(t *testing.T) {
 			t.Error("expected error for malformed key, got nil")
 		}
 	})
+
+	// Reproduces the bug where starting tinywasm silently deletes externally
+	// set .env values that contain more than one '=' (e.g. POSTGRES_DSN
+	// connection strings with query parameters like "?sslmode=disable").
+	//
+	// Root cause: New() splits each line on every '=' via Split("=") and only
+	// keeps the pair when len(kv) == 2 (database.go). A DSN value produces
+	// len(kv) > 2, so the whole line is dropped from memory on load. Any
+	// later Set() call for an unrelated key then persists only the in-memory
+	// data back to disk (full overwrite), permanently erasing the DSN line.
+	t.Run("does not delete external env values containing multiple '=' (e.g. POSTGRES_DSN)", func(t *testing.T) {
+		store := newMockStore()
+		const dsn = "postgres://user:pass@host:5432/db?sslmode=disable&application_name=tinywasm"
+		store.SetFile("test.db", []byte("POSTGRES_DSN="+dsn+"\ndev_mode=false"))
+
+		db, err := New("test.db", nil, store)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		val, err := db.Get("POSTGRES_DSN")
+		if err != nil {
+			t.Fatalf("POSTGRES_DSN was dropped on load: %v", err)
+		}
+		if val != dsn {
+			t.Errorf("expected POSTGRES_DSN %q, got %q", dsn, val)
+		}
+
+		// Simulate tinywasm startup writing an unrelated key (e.g. dev_mode),
+		// which triggers a full-file persist of in-memory data.
+		if err := db.Set("dev_mode", "true"); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if err := db.Flush(); err != nil {
+			t.Fatalf("unexpected error flushing: %v", err)
+		}
+
+		// Reload straight from the store to confirm what actually landed on disk.
+		reloaded, err := New("test.db", nil, store)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		val, err = reloaded.Get("POSTGRES_DSN")
+		if err != nil {
+			t.Fatalf("POSTGRES_DSN was deleted from disk after Set/Flush: %v", err)
+		}
+		if val != dsn {
+			t.Errorf("expected POSTGRES_DSN %q after persist, got %q", dsn, val)
+		}
+	})
 }
