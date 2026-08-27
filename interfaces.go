@@ -11,4 +11,7 @@ type Store interface {
 type KVStore interface {
 	Get(key string) (string, error)
 	Set(key, value string) error
+	// Keys returns every key currently stored, in insertion order. Empty
+	// store returns an empty (non-nil) slice, never nil.
+	Keys() []string
 }

@@ -5,6 +5,17 @@ import (
 	. "github.com/tinywasm/time"
 )
 
+// Keys returns every key currently stored, in insertion order.
+func (t *TinyDB) Keys() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	keys := make([]string, 0, len(t.data))
+	for _, p := range t.data {
+		keys = append(keys, p.Key)
+	}
+	return keys
+}
+
 func (t *TinyDB) Get(key string) (string, error) {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
