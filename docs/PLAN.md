@@ -2,6 +2,8 @@
 PLAN: "fix: never clobber external edits to the backing file"
 EXECUTOR: jules
 REVIEWER: none
+STATUS: running
+SESSION: 2200519370399796353
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
