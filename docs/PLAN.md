@@ -2,8 +2,9 @@
 PLAN: "fix: never clobber external edits to the backing file"
 EXECUTOR: jules
 REVIEWER: none
-STATUS: running
+STATUS: review
 SESSION: 2200519370399796353
+PR: https://github.com/tinywasm/kvdb/pull/4
 ---
 
 > This plan is dispatched via the CodeJob workflow. See skill: agents-workflow.
