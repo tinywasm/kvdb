@@ -5,6 +5,11 @@ import (
 	. "github.com/tinywasm/time"
 )
 
+const (
+	msgErrPersisting = "error persisting:"
+	msgErrAppending  = "error appending:"
+)
+
 // Keys returns every key currently stored, in insertion order.
 func (t *TinyDB) Keys() []string {
 	t.mu.RLock()
@@ -31,6 +36,8 @@ func (t *TinyDB) Get(key string) (string, error) {
 func (t *TinyDB) Set(key, value string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	t.touched[key] = true
 
 	// search if it exists
 	for i, p := range t.data {
@@ -64,13 +71,15 @@ func (t *TinyDB) schedulePersist() error {
 				t.mu.Unlock()
 				return
 			}
-			data := t.snapshot()
+			disk, _ := t.store.GetFile(t.name)
+			data := reconcile(disk, t.data, t.touched)
 			t.dirty = false
 			t.debounceTimer = nil
+			t.touched = make(map[string]bool)
 			t.mu.Unlock()
 
 			if err := t.store.SetFile(t.name, data); err != nil {
-				t.log("error persisting:", err.Error())
+				t.log(msgErrPersisting, err.Error())
 			}
 		})
 	}
@@ -86,33 +95,21 @@ func (t *TinyDB) append(p pair) error {
 
 	if err := t.store.AddToFile(t.name, t.raw.Bytes()); err != nil {
 		// log only on error
-		t.log("error appending:", err.Error())
+		t.log(msgErrAppending, err.Error())
 		return err
 	}
 
+	delete(t.touched, p.Key)
 	return nil
 }
 
-// snapshot builds the serialized bytes from current in-memory data.
-// Must be called with t.mu held.
-func (t *TinyDB) snapshot() []byte {
-	t.raw.Reset()
-	for _, p := range t.data {
-		t.raw.Write(p.Key)
-		t.raw.Write("=")
-		t.raw.Write(p.Value)
-		t.raw.Write("\n")
-	}
-	out := make([]byte, len(t.raw.Bytes()))
-	copy(out, t.raw.Bytes())
-	return out
-}
-
 func (t *TinyDB) persist() error {
-	data := t.snapshot()
+	disk, _ := t.store.GetFile(t.name)
+	data := reconcile(disk, t.data, t.touched)
 	if err := t.store.SetFile(t.name, data); err != nil {
-		t.log("error persisting:", err.Error())
+		t.log(msgErrPersisting, err.Error())
 		return err
 	}
+	t.touched = make(map[string]bool)
 	return nil
 }

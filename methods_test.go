@@ -97,3 +97,109 @@ func TestLogger(t *testing.T) {
 		t.Errorf("expected error log for failing persist, got '%s'", buf2.String())
 	}
 }
+
+func TestPersist_DoesNotDropExternalKey(t *testing.T) {
+	store := newMockStore()
+	store.SetFile("test.db", []byte("A=1\n"))
+	db, _ := New("test.db", nil, store)
+
+	// write EXTERNAL=1 into the store behind db's back
+	store.SetFile("test.db", []byte("A=1\nEXTERNAL=1\n"))
+
+	_ = db.Set("A", "9")
+	_ = db.Flush()
+
+	data, _ := store.GetFile("test.db")
+	if !strings.Contains(string(data), "EXTERNAL=1") {
+		t.Errorf("expected store to contain EXTERNAL=1, got %q", string(data))
+	}
+}
+
+func TestPersist_DoesNotDropComments(t *testing.T) {
+	store := newMockStore()
+	store.SetFile("test.db", []byte("# comment\nA=1\n"))
+	db, _ := New("test.db", nil, store)
+
+	_ = db.Set("A", "9")
+	_ = db.Flush()
+
+	data, _ := store.GetFile("test.db")
+	if !strings.Contains(string(data), "# comment") {
+		t.Errorf("expected store to contain '# comment', got %q", string(data))
+	}
+}
+
+func TestReload_AdoptsExternalChanges(t *testing.T) {
+	store := newMockStore()
+	store.SetFile("test.db", []byte("A=1\n"))
+	db, _ := New("test.db", nil, store)
+
+	// External edit changes untouched key's value and adds B=2
+	store.SetFile("test.db", []byte("A=1\nB=2\n"))
+
+	if err := db.Reload(); err != nil {
+		t.Fatalf("unexpected error reloading: %v", err)
+	}
+
+	val, err := db.Get("B")
+	if err != nil || val != "2" {
+		t.Errorf("expected B=2 after reload, got val=%q err=%v", val, err)
+	}
+}
+
+func TestReload_KeepsUnflushedLocalWrites(t *testing.T) {
+	store := newMockStore()
+	store.SetFile("test.db", []byte("A=orig\n"))
+	db, _ := New("test.db", nil, store)
+
+	_ = db.Set("A", "local") // unflushed local write
+	store.SetFile("test.db", []byte("A=remote\n"))
+
+	if err := db.Reload(); err != nil {
+		t.Fatalf("unexpected error reloading: %v", err)
+	}
+
+	val, _ := db.Get("A")
+	if val != "local" {
+		t.Errorf("expected Get(\"A\") to be 'local', got %q", val)
+	}
+}
+
+func TestReload_DropsExternalDeletionsOfUntouchedKeys(t *testing.T) {
+	store := newMockStore()
+	store.SetFile("test.db", []byte("A=1\nB=2\n"))
+	db, _ := New("test.db", nil, store)
+
+	// External edit deletes B from disk
+	store.SetFile("test.db", []byte("A=1\n"))
+
+	if err := db.Reload(); err != nil {
+		t.Fatalf("unexpected error reloading: %v", err)
+	}
+
+	_, err := db.Get("B")
+	if err == nil {
+		t.Errorf("expected B to be deleted after reload, but it was found")
+	}
+}
+
+func TestReload_AfterFlushAdoptsExternalEdits(t *testing.T) {
+	store := newMockStore()
+	store.SetFile("test.db", []byte("A=orig\n"))
+	db, _ := New("test.db", nil, store)
+
+	_ = db.Set("A", "local")
+	_ = db.Flush() // local write flushed to disk
+
+	// External edit modifies A on disk after flush
+	store.SetFile("test.db", []byte("A=external\n"))
+
+	if err := db.Reload(); err != nil {
+		t.Fatalf("unexpected error reloading: %v", err)
+	}
+
+	val, _ := db.Get("A")
+	if val != "external" {
+		t.Errorf("expected Get(\"A\") to be 'external' after reload post-flush, got %q", val)
+	}
+}

@@ -11,8 +11,9 @@ TinyDB is a TinyGo-compatible, minimal key–value store for string keys and val
 
 ## Key features
 
-- Minimal public API: `Get`, `Set` and `Flush` operations.
+- Minimal public API: `Get`, `Set` and `Flush` operations. Optional `Reload()` method on `TinyDB`.
 - Automatic write debounce (150ms) for updates to reduce I/O.
+- Reconciliation guarantee: writes only change keys modified by this process. Comments, blank lines, key order, and unknown/external keys are preserved byte-for-byte.
 - Keys and values are plain `string` types.
 - Pluggable storage via the `Store` interface (file, memory, remote object store, etc.).
 - Simple on-disk/text format: one `key=value` entry per line.
@@ -24,6 +25,7 @@ TinyDB is a TinyGo-compatible, minimal key–value store for string keys and val
 2. Create a database instance with `tinydb.New(name, logger, store)`.
 3. Use `Get(key)` and `Set(key, value)` to read and write values.
 4. Call `Flush()` before exiting the application to ensure all data is written to disk.
+5. Use `Reload()` if external processes modify the backing file and you want to merge changes into memory without overwriting unflushed local writes.
 
 Example minimal flow:
 
@@ -32,11 +34,12 @@ Example minimal flow:
 - Set: `db.Set("foo", "bar")`
 - Get: `val, err := db.Get("foo")`
 - Flush: `db.Flush()`
+- Reload: `err := db.Reload()`
 
 ## API contract (concise)
 
 - Inputs: `key` and `value` are `string`.
-- Outputs: `Get` returns `(string, error)`. `Set` and `Flush` return `error`.
+- Outputs: `Get` returns `(string, error)`. `Set`, `Flush`, and `Reload` return `error`.
 - Persistence: handled by the `Store` implementation; `Set` for updates is debounced by 150ms.
 - Failure modes: I/O errors or backend errors are returned as `error` from the public methods.
 
@@ -79,11 +82,8 @@ db, err := tinydb.New("mydb.tdb", logger, store)
 ```
 
 - `name` (string): logical database name; commonly a file path used by the `Store` implementation.
-- `logger` (io.Writer): optional logging target; may be `os.Stdout` or `nil`.
+- `logger` (`tinydb.LoggerFunc`, signature `func(...any)`): optional logger function; may be a wrapper that writes to `os.Stdout` or `nil`.
 - `store` (Store): required backend implementation.
- - `name` (string): logical database name; commonly a file path used by the `Store` implementation.
- - `logger` (`tinydb.LoggerFunc`, signature `func(...any)`): optional logger function; may be a wrapper that writes to `os.Stdout` or `nil`.
- - `store` (Store): required backend implementation.
 
 ## Minimal example (file-backed store)
 
@@ -153,13 +153,14 @@ func main() {
 }
 ```
 
-## Storage format
+## Storage format & Reconciliation
 
 By default tinydb uses a simple text representation: one `key=value` per line.
 
 Example file contents:
 
 ```
+# Application configuration
 username=cesar
 theme=dark
 window=1024x768
@@ -169,6 +170,7 @@ Notes:
 
 - Avoid embedding newlines in values; the implementation expects single-line entries.
 - If your values may contain `=` or newline characters, use an encoding strategy in your `Store` or pre-encode values before calling `Set`.
+- TinyDB reconciles on-disk contents when persisting: comments, blank lines, and externally added keys or edits are preserved. Only keys explicitly written by `Set` in this process are updated.
 
 ## Testing suggestions
 
