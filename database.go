@@ -28,10 +28,11 @@ func splitOnFirstEquals(s string) (key, value string) {
 type LoggerFunc func(...any)
 
 type TinyDB struct {
-	name  string
-	data  []pair
-	log   LoggerFunc
-	store Store
+	name    string
+	data    []pair
+	log     LoggerFunc
+	store   Store
+	touched map[string]bool
 
 	raw *Conv
 	mu  sync.RWMutex
@@ -61,6 +62,65 @@ func (t *TinyDB) Flush() error {
 	return t.persist()
 }
 
+// Reload re-reads the backing file and merges it into memory. Keys written by
+// this process since the last flush keep their in-memory value; every other key
+// takes the value on disk, and keys only present on disk are added.
+func (t *TinyDB) Reload() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	raw, err := t.store.GetFile(t.name)
+	if err != nil {
+		return err
+	}
+
+	diskLines := parseLines(raw)
+	diskPairs := make([]pair, 0)
+	diskKeys := make(map[string]bool)
+
+	for _, line := range diskLines {
+		if line.kind == kindPair && !diskKeys[line.key] {
+			diskKeys[line.key] = true
+			_, val := splitOnFirstEquals(Convert(line.raw).TrimSpace().String())
+			diskPairs = append(diskPairs, pair{Key: line.key, Value: val})
+		}
+	}
+
+	// Rebuild t.data keeping touched keys with local value, adopting disk values for untouched keys,
+	// and appending local-only touched keys.
+	newData := make([]pair, 0, len(diskPairs)+len(t.data))
+	seenInNewData := make(map[string]bool)
+
+	for _, dp := range diskPairs {
+		seenInNewData[dp.Key] = true
+		if t.touched[dp.Key] {
+			// keep local value
+			localVal := dp.Value
+			for _, p := range t.data {
+				if p.Key == dp.Key {
+					localVal = p.Value
+					break
+				}
+			}
+			newData = append(newData, pair{Key: dp.Key, Value: localVal})
+		} else {
+			// adopt disk value
+			newData = append(newData, pair{Key: dp.Key, Value: dp.Value})
+		}
+	}
+
+	// Append keys that exist locally in t.data but NOT on disk ONLY IF they are touched
+	for _, p := range t.data {
+		if !seenInNewData[p.Key] && t.touched[p.Key] {
+			seenInNewData[p.Key] = true
+			newData = append(newData, p)
+		}
+	}
+
+	t.data = newData
+	return nil
+}
+
 // New creates or loads a database
 func New(name string, log LoggerFunc, store Store) (*TinyDB, error) {
 	if log == nil {
@@ -72,6 +132,7 @@ func New(name string, log LoggerFunc, store Store) (*TinyDB, error) {
 		data:          make([]pair, 0),
 		log:           log,
 		store:         store,
+		touched:       make(map[string]bool),
 		raw:           Convert(),
 		debounceDelay: defaultDebounce,
 	}
